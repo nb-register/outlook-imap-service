@@ -2,7 +2,9 @@
 
 ## 职责
 
-`outlook-imap-service` 负责 Outlook 邮箱 OTP。当前实现通过 Microsoft Graph 轮询收件箱，并向调用方返回匹配邮箱地址和主题关键词的 6 位验证码。
+`outlook-imap-service` 负责 Outlook 邮箱 OTP。当前实现通过 Microsoft Graph 持续轮询收件箱，并向调用方返回匹配邮箱地址和主题关键词的 6 位验证码。
+
+服务会按邮箱地址缓存最近一条 OTP，`WaitForEmail` 取走后立即清空该邮箱的缓存；如果请求先到，则等待后续邮件并在命中后返回。
 
 `browser-reg` 会在注册请求内调用 `WaitForEmail`，默认最多等待 2 次，每次 60 秒。
 

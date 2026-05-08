@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 )
 
 const graphMessagesURL = "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages"
+const cachedOTPTTL = 10 * time.Minute
 
 var otpPattern = regexp.MustCompile(`(^|[^0-9])([0-9]{6})([^0-9]|$)`)
 
@@ -24,21 +27,53 @@ type Waiter struct {
 	CreatedAt      time.Time
 }
 
+type CachedOTP struct {
+	OTP         string
+	Subject     string
+	SourceEmail string
+	ReceivedAt  time.Time
+}
+
 type MailWatcher struct {
-	cfg      *Config
-	accMgr   *AccountManager
-	oauthMgr *OAuthManager
-	waiters  map[string]*Waiter
-	mu       sync.Mutex
+	cfg          *Config
+	accMgr       *AccountManager
+	oauthMgr     *OAuthManager
+	waiters      map[string]*Waiter
+	cachedOTPs   map[string]*CachedOTP
+	seenMessages map[string]time.Time
+	startedAt    time.Time
+	mu           sync.Mutex
 }
 
 func NewMailWatcher(cfg *Config, accMgr *AccountManager) *MailWatcher {
 	return &MailWatcher{
-		cfg:      cfg,
-		accMgr:   accMgr,
-		oauthMgr: NewOAuthManager(cfg.RefreshToken, cfg.OAuthScope),
-		waiters:  make(map[string]*Waiter),
+		cfg:          cfg,
+		accMgr:       accMgr,
+		oauthMgr:     NewOAuthManager(cfg.RefreshToken, cfg.OAuthScope),
+		waiters:      make(map[string]*Waiter),
+		cachedOTPs:   make(map[string]*CachedOTP),
+		seenMessages: make(map[string]time.Time),
+		startedAt:    time.Now().Add(-30 * time.Second),
 	}
+}
+
+func (w *MailWatcher) ConsumeCachedOTP(emailAddr, subjectKeyword string) (string, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.cleanupLocked(time.Now())
+	key := normalizeEmail(emailAddr)
+	cached := w.cachedOTPs[key]
+	if cached == nil {
+		return "", false
+	}
+	if !containsFold(cached.Subject, subjectKeyword) {
+		return "", false
+	}
+
+	delete(w.cachedOTPs, key)
+	log.Printf("[MAIL] Served cached OTP for %s", redactEmail(emailAddr))
+	return cached.OTP, true
 }
 
 func (w *MailWatcher) AddWaiter(emailAddr, subjectKeyword string, respChan chan string) {
@@ -64,19 +99,32 @@ func (w *MailWatcher) getWaiters() map[string]*Waiter {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	now := time.Now()
-	for k, v := range w.waiters {
-		if now.Sub(v.CreatedAt) > 10*time.Minute {
-			log.Printf("[MAIL] Removing stale waiter for %s", redactEmail(v.EmailAddress))
-			delete(w.waiters, k)
-		}
-	}
+	w.cleanupLocked(time.Now())
 
 	copy := make(map[string]*Waiter)
 	for k, v := range w.waiters {
 		copy[k] = v
 	}
 	return copy
+}
+
+func (w *MailWatcher) cleanupLocked(now time.Time) {
+	for k, v := range w.waiters {
+		if now.Sub(v.CreatedAt) > 10*time.Minute {
+			log.Printf("[MAIL] Removing stale waiter for %s", redactEmail(v.EmailAddress))
+			delete(w.waiters, k)
+		}
+	}
+	for k, v := range w.cachedOTPs {
+		if now.Sub(v.ReceivedAt) > cachedOTPTTL {
+			delete(w.cachedOTPs, k)
+		}
+	}
+	for k, seenAt := range w.seenMessages {
+		if now.Sub(seenAt) > time.Hour {
+			delete(w.seenMessages, k)
+		}
+	}
 }
 
 func (w *MailWatcher) Start() {
@@ -90,9 +138,6 @@ func (w *MailWatcher) Start() {
 
 func (w *MailWatcher) poll() {
 	waiters := w.getWaiters()
-	if len(waiters) == 0 {
-		return
-	}
 
 	_, refreshToken := w.accMgr.GetCredentials()
 	if refreshToken == "" {
@@ -112,17 +157,20 @@ func (w *MailWatcher) poll() {
 		return
 	}
 
-	delivered := make(map[string]bool)
 	for _, msg := range messages {
-		waiter, recipient := matchWaiter(msg, waiters)
-		if waiter == nil {
+		msgKey := messageKey(msg)
+		if w.messageSeen(msgKey) {
 			continue
 		}
-		waiterKey := normalizeEmail(waiter.EmailAddress)
-		if delivered[waiterKey] {
+		w.markMessageSeen(msgKey)
+
+		receivedAt := messageReceivedAt(msg)
+		if !receivedAt.IsZero() && receivedAt.Before(w.startedAt) {
 			continue
 		}
-		if !containsFold(msg.Subject, waiter.SubjectKeyword) {
+
+		recipients := messageAddresses(msg)
+		if len(recipients) == 0 {
 			continue
 		}
 
@@ -131,17 +179,67 @@ func (w *MailWatcher) poll() {
 			continue
 		}
 
-		if recipient == "" {
-			recipient = waiter.EmailAddress
+		delivered, cached := w.cacheAndDeliverOTP(msg.Subject, otp, recipients, receivedAt, waiters)
+		if delivered > 0 {
+			log.Printf("[MAIL] Found and delivered OTP to %d waiter(s)", delivered)
+		} else if cached > 0 {
+			log.Printf("[MAIL] Cached OTP for %d recipient(s)", cached)
 		}
-		log.Printf("[MAIL] Found OTP for %s", redactEmail(recipient))
+	}
+}
+
+func (w *MailWatcher) messageSeen(key string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, ok := w.seenMessages[key]
+	return ok
+}
+
+func (w *MailWatcher) markMessageSeen(key string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.seenMessages[key] = time.Now()
+}
+
+func (w *MailWatcher) cacheAndDeliverOTP(subject, otp string, recipients []string, receivedAt time.Time, waiters map[string]*Waiter) (int, int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if receivedAt.IsZero() {
+		receivedAt = time.Now()
+	}
+
+	delivered := 0
+	cached := 0
+	seenRecipients := make(map[string]bool)
+	for _, recipient := range recipients {
+		key := normalizeEmail(recipient)
+		if key == "" || seenRecipients[key] {
+			continue
+		}
+		seenRecipients[key] = true
+
+		w.cachedOTPs[key] = &CachedOTP{
+			OTP:         otp,
+			Subject:     subject,
+			SourceEmail: recipient,
+			ReceivedAt:  receivedAt,
+		}
+		cached++
+
+		waiter := waiters[key]
+		if waiter == nil || !containsFold(subject, waiter.SubjectKeyword) {
+			continue
+		}
 		select {
 		case waiter.ResponseChan <- otp:
 		default:
 		}
-		delivered[waiterKey] = true
-		w.RemoveWaiter(waiter.EmailAddress)
+		delete(w.cachedOTPs, key)
+		delete(w.waiters, key)
+		delivered++
 	}
+	return delivered, cached
 }
 
 type graphMessageList struct {
@@ -149,9 +247,11 @@ type graphMessageList struct {
 }
 
 type graphMessage struct {
+	ID                     string                `json:"id"`
 	Subject                string                `json:"subject"`
 	BodyPreview            string                `json:"bodyPreview"`
 	Body                   graphBody             `json:"body"`
+	ReceivedDateTime       string                `json:"receivedDateTime"`
 	ToRecipients           []graphRecipient      `json:"toRecipients"`
 	CcRecipients           []graphRecipient      `json:"ccRecipients"`
 	BccRecipients          []graphRecipient      `json:"bccRecipients"`
@@ -183,7 +283,7 @@ func fetchRecentMessages(accessToken string) ([]graphMessage, error) {
 	q := u.Query()
 	q.Set("$top", "25")
 	q.Set("$orderby", "receivedDateTime desc")
-	q.Set("$select", "subject,bodyPreview,body,toRecipients,ccRecipients,bccRecipients,internetMessageHeaders,receivedDateTime")
+	q.Set("$select", "id,subject,bodyPreview,body,toRecipients,ccRecipients,bccRecipients,internetMessageHeaders,receivedDateTime")
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequest("GET", u.String(), nil)
@@ -211,17 +311,23 @@ func fetchRecentMessages(accessToken string) ([]graphMessage, error) {
 	return out.Value, nil
 }
 
-func matchWaiter(msg graphMessage, waiters map[string]*Waiter) (*Waiter, string) {
-	for _, addr := range messageAddresses(msg) {
-		key := normalizeEmail(addr)
-		if waiter, ok := waiters[key]; ok {
-			return waiter, addr
-		}
+func messageKey(msg graphMessage) string {
+	if msg.ID != "" {
+		return msg.ID
 	}
-	if len(waiters) == 1 {
-		return nil, ""
+	sum := sha256.Sum256([]byte(msg.Subject + "\x00" + msg.ReceivedDateTime + "\x00" + msg.BodyPreview + "\x00" + strings.Join(messageAddresses(msg), ",")))
+	return hex.EncodeToString(sum[:])
+}
+
+func messageReceivedAt(msg graphMessage) time.Time {
+	if msg.ReceivedDateTime == "" {
+		return time.Time{}
 	}
-	return nil, ""
+	t, err := time.Parse(time.RFC3339, msg.ReceivedDateTime)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func messageAddresses(msg graphMessage) []string {
