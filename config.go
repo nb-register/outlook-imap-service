@@ -8,19 +8,12 @@ import (
 const defaultRefreshTokenFile = "tokens/outlook_refresh_token"
 
 type Config struct {
-	PrimaryEmail     string
 	RefreshToken     string
 	RefreshTokenFile string
 	ListenAddr       string
-	AliasStartNum    int
 }
 
 func LoadConfig() *Config {
-	email := os.Getenv("OUTLOOK_EMAIL")
-	if email == "" {
-		email = "test@outlook.com" // Placeholder
-	}
-
 	refreshToken := os.Getenv("OUTLOOK_REFRESH_TOKEN")
 	refreshTokenFile := os.Getenv("OUTLOOK_REFRESH_TOKEN_FILE")
 	if refreshTokenFile == "" {
@@ -36,11 +29,9 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		PrimaryEmail:     email,
 		RefreshToken:     refreshToken,
 		RefreshTokenFile: refreshTokenFile,
 		ListenAddr:       listenAddr,
-		AliasStartNum:    1000,
 	}
 }
 

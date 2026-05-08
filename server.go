@@ -9,21 +9,13 @@ import (
 
 type emailServer struct {
 	pb.UnimplementedEmailServiceServer
-	accMgr  *AccountManager
 	watcher *MailWatcher
 }
 
-func NewEmailServer(accMgr *AccountManager, watcher *MailWatcher) *emailServer {
+func NewEmailServer(watcher *MailWatcher) *emailServer {
 	return &emailServer{
-		accMgr:  accMgr,
 		watcher: watcher,
 	}
-}
-
-func (s *emailServer) GetEmail(ctx context.Context, req *pb.GetEmailRequest) (*pb.GetEmailResponse, error) {
-	// We ignore the requested domain/prefix and use our own alias logic
-	email := s.accMgr.GetNextEmail()
-	return &pb.GetEmailResponse{EmailAddress: email}, nil
 }
 
 func (s *emailServer) WaitForEmail(ctx context.Context, req *pb.WaitForEmailRequest) (*pb.WaitForEmailResponse, error) {

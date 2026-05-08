@@ -19,7 +19,6 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EmailService_GetEmail_FullMethodName     = "/email.EmailService/GetEmail"
 	EmailService_WaitForEmail_FullMethodName = "/email.EmailService/WaitForEmail"
 )
 
@@ -27,7 +26,6 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EmailServiceClient interface {
-	GetEmail(ctx context.Context, in *GetEmailRequest, opts ...grpc.CallOption) (*GetEmailResponse, error)
 	WaitForEmail(ctx context.Context, in *WaitForEmailRequest, opts ...grpc.CallOption) (*WaitForEmailResponse, error)
 }
 
@@ -37,16 +35,6 @@ type emailServiceClient struct {
 
 func NewEmailServiceClient(cc grpc.ClientConnInterface) EmailServiceClient {
 	return &emailServiceClient{cc}
-}
-
-func (c *emailServiceClient) GetEmail(ctx context.Context, in *GetEmailRequest, opts ...grpc.CallOption) (*GetEmailResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetEmailResponse)
-	err := c.cc.Invoke(ctx, EmailService_GetEmail_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *emailServiceClient) WaitForEmail(ctx context.Context, in *WaitForEmailRequest, opts ...grpc.CallOption) (*WaitForEmailResponse, error) {
@@ -63,7 +51,6 @@ func (c *emailServiceClient) WaitForEmail(ctx context.Context, in *WaitForEmailR
 // All implementations must embed UnimplementedEmailServiceServer
 // for forward compatibility.
 type EmailServiceServer interface {
-	GetEmail(context.Context, *GetEmailRequest) (*GetEmailResponse, error)
 	WaitForEmail(context.Context, *WaitForEmailRequest) (*WaitForEmailResponse, error)
 	mustEmbedUnimplementedEmailServiceServer()
 }
@@ -75,9 +62,6 @@ type EmailServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedEmailServiceServer struct{}
 
-func (UnimplementedEmailServiceServer) GetEmail(context.Context, *GetEmailRequest) (*GetEmailResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetEmail not implemented")
-}
 func (UnimplementedEmailServiceServer) WaitForEmail(context.Context, *WaitForEmailRequest) (*WaitForEmailResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitForEmail not implemented")
 }
@@ -100,24 +84,6 @@ func RegisterEmailServiceServer(s grpc.ServiceRegistrar, srv EmailServiceServer)
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&EmailService_ServiceDesc, srv)
-}
-
-func _EmailService_GetEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetEmailRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(EmailServiceServer).GetEmail(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: EmailService_GetEmail_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EmailServiceServer).GetEmail(ctx, req.(*GetEmailRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _EmailService_WaitForEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -145,10 +111,6 @@ var EmailService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "email.EmailService",
 	HandlerType: (*EmailServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "GetEmail",
-			Handler:    _EmailService_GetEmail_Handler,
-		},
 		{
 			MethodName: "WaitForEmail",
 			Handler:    _EmailService_WaitForEmail_Handler,

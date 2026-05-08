@@ -36,7 +36,6 @@ type CachedOTP struct {
 
 type MailWatcher struct {
 	cfg          *Config
-	accMgr       *AccountManager
 	oauthMgr     *OAuthManager
 	waiters      map[string]*Waiter
 	cachedOTPs   map[string]*CachedOTP
@@ -45,10 +44,9 @@ type MailWatcher struct {
 	mu           sync.Mutex
 }
 
-func NewMailWatcher(cfg *Config, accMgr *AccountManager) *MailWatcher {
+func NewMailWatcher(cfg *Config) *MailWatcher {
 	return &MailWatcher{
 		cfg:          cfg,
-		accMgr:       accMgr,
 		oauthMgr:     NewOAuthManager(cfg.RefreshToken, cfg.RefreshTokenFile),
 		waiters:      make(map[string]*Waiter),
 		cachedOTPs:   make(map[string]*CachedOTP),
@@ -143,8 +141,7 @@ func (w *MailWatcher) Start() {
 func (w *MailWatcher) poll() {
 	waiters := w.getWaiters()
 
-	_, refreshToken := w.accMgr.GetCredentials()
-	if refreshToken == "" {
+	if w.cfg.RefreshToken == "" {
 		log.Println("[MAIL] No refresh token configured, skipping poll")
 		return
 	}

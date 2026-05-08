@@ -6,10 +6,7 @@ import (
 )
 
 func newTestWatcher() *MailWatcher {
-	cfg := &Config{
-		PrimaryEmail: "primary@example.com",
-	}
-	return NewMailWatcher(cfg, NewAccountManager(cfg))
+	return NewMailWatcher(&Config{})
 }
 
 func TestConsumeCachedOTPClearsCache(t *testing.T) {

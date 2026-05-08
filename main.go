@@ -13,8 +13,7 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	cfg := LoadConfig()
-	accMgr := NewAccountManager(cfg)
-	watcher := NewMailWatcher(cfg, accMgr)
+	watcher := NewMailWatcher(cfg)
 
 	// Start polling in the background
 	watcher.Start()
@@ -25,7 +24,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	pb.RegisterEmailServiceServer(grpcServer, NewEmailServer(accMgr, watcher))
+	pb.RegisterEmailServiceServer(grpcServer, NewEmailServer(watcher))
 
 	log.Printf("Starting Outlook mail gRPC server on %s...", cfg.ListenAddr)
 	if err := grpcServer.Serve(lis); err != nil {

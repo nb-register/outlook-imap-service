@@ -6,13 +6,12 @@
 
 服务会按邮箱地址缓存最近一条 OTP，`WaitForEmail` 取走后立即清空该邮箱的缓存；如果请求先到，则等待后续邮件并在命中后返回。
 
-`browser-reg` 会在注册请求内调用 `WaitForEmail`，默认最多等待 2 次，每次 60 秒。
+邮箱地址由 `account-db` 生成，编排服务调用 `WaitForEmail` 等待注册 OTP。
 
 ## 容器参数
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `OUTLOOK_EMAIL` | `test@outlook.com` | Outlook 主邮箱 |
 | `OUTLOOK_REFRESH_TOKEN_FILE` | `tokens/outlook_refresh_token` | refresh token 持久化文件 |
 | `LISTEN_ADDR` | `:50053` | gRPC 监听地址 |
 
@@ -38,7 +37,6 @@ Proto: `proto/email.proto`
 
 ```proto
 service EmailService {
-  rpc GetEmail(GetEmailRequest) returns (GetEmailResponse);
   rpc WaitForEmail(WaitForEmailRequest) returns (WaitForEmailResponse);
 }
 ```
