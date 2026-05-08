@@ -51,7 +51,7 @@ func (w *MailWatcher) AddWaiter(emailAddr, subjectKeyword string, respChan chan 
 		ResponseChan:   respChan,
 		CreatedAt:      time.Now(),
 	}
-	log.Printf("[MAIL] Added waiter for %s (subject: %s)", emailAddr, subjectKeyword)
+	log.Printf("[MAIL] Added waiter for %s (subject: %s)", redactEmail(emailAddr), subjectKeyword)
 }
 
 func (w *MailWatcher) RemoveWaiter(emailAddr string) {
@@ -67,7 +67,7 @@ func (w *MailWatcher) getWaiters() map[string]*Waiter {
 	now := time.Now()
 	for k, v := range w.waiters {
 		if now.Sub(v.CreatedAt) > 10*time.Minute {
-			log.Printf("[MAIL] Removing stale waiter for %s", v.EmailAddress)
+			log.Printf("[MAIL] Removing stale waiter for %s", redactEmail(v.EmailAddress))
 			delete(w.waiters, k)
 		}
 	}
@@ -134,7 +134,7 @@ func (w *MailWatcher) poll() {
 		if recipient == "" {
 			recipient = waiter.EmailAddress
 		}
-		log.Printf("[MAIL] Found OTP %s for %s", otp, recipient)
+		log.Printf("[MAIL] Found OTP for %s", redactEmail(recipient))
 		select {
 		case waiter.ResponseChan <- otp:
 		default:
@@ -262,6 +262,21 @@ func extractEmails(s string) []string {
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func redactEmail(email string) string {
+	email = strings.TrimSpace(email)
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return "***"
+	}
+	local := parts[0]
+	if len(local) > 2 {
+		local = local[:2] + "***"
+	} else {
+		local = "***"
+	}
+	return local + "@" + parts[1]
 }
 
 func containsFold(s, substr string) bool {
