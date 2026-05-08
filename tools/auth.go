@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -14,6 +17,23 @@ const (
 	ClientID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
 	Scope    = "openid profile email offline_access https://graph.microsoft.com/Mail.Read"
 )
+
+func defaultTokenFile() string {
+	if v := os.Getenv("OUTLOOK_REFRESH_TOKEN_FILE"); v != "" {
+		return v
+	}
+	return "tokens/outlook_refresh_token"
+}
+
+func writeTokenFile(path string, token string) error {
+	if path == "" || token == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(token+"\n"), 0o600)
+}
 
 type DeviceCodeResponse struct {
 	DeviceCode      string `json:"device_code"`
@@ -32,6 +52,10 @@ type TokenResponse struct {
 }
 
 func main() {
+	tokenFile := flag.String("token-file", defaultTokenFile(), "path to persist refresh token")
+	printToken := flag.Bool("print-token", false, "print refresh token to stdout")
+	flag.Parse()
+
 	fmt.Println("Starting Microsoft OAuth2 Device Flow...")
 
 	// 1. Request device code
@@ -96,10 +120,15 @@ func main() {
 
 		fmt.Println("\n\nSUCCESS! Authorization complete.")
 		fmt.Println("======================================================")
-		fmt.Println("Copy the following Refresh Token into your .env file as OUTLOOK_REFRESH_TOKEN:")
-		fmt.Println()
-		fmt.Println(tokenResp.RefreshToken)
-		fmt.Println()
+		if err := writeTokenFile(*tokenFile, tokenResp.RefreshToken); err != nil {
+			fmt.Printf("Failed to write refresh token: %v\n", err)
+			return
+		}
+		fmt.Printf("Refresh token written to %s\n", *tokenFile)
+		if *printToken {
+			fmt.Println()
+			fmt.Println(tokenResp.RefreshToken)
+		}
 		fmt.Println("======================================================")
 		break
 	}

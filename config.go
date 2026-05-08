@@ -2,14 +2,17 @@ package main
 
 import (
 	"os"
+	"strings"
 )
 
+const defaultRefreshTokenFile = "tokens/outlook_refresh_token"
+
 type Config struct {
-	PrimaryEmail  string
-	RefreshToken  string
-	OAuthScope    string
-	ListenAddr    string
-	AliasStartNum int
+	PrimaryEmail     string
+	RefreshToken     string
+	RefreshTokenFile string
+	ListenAddr       string
+	AliasStartNum    int
 }
 
 func LoadConfig() *Config {
@@ -19,10 +22,12 @@ func LoadConfig() *Config {
 	}
 
 	refreshToken := os.Getenv("OUTLOOK_REFRESH_TOKEN")
-
-	oauthScope := os.Getenv("OUTLOOK_AUTH_SCOPE")
-	if oauthScope == "" {
-		oauthScope = "https://graph.microsoft.com/Mail.Read"
+	refreshTokenFile := os.Getenv("OUTLOOK_REFRESH_TOKEN_FILE")
+	if refreshTokenFile == "" {
+		refreshTokenFile = defaultRefreshTokenFile
+	}
+	if refreshToken == "" {
+		refreshToken = readRefreshTokenFile(refreshTokenFile)
 	}
 
 	listenAddr := os.Getenv("LISTEN_ADDR")
@@ -31,10 +36,21 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		PrimaryEmail:  email,
-		RefreshToken:  refreshToken,
-		OAuthScope:    oauthScope,
-		ListenAddr:    listenAddr,
-		AliasStartNum: 1000,
+		PrimaryEmail:     email,
+		RefreshToken:     refreshToken,
+		RefreshTokenFile: refreshTokenFile,
+		ListenAddr:       listenAddr,
+		AliasStartNum:    1000,
 	}
+}
+
+func readRefreshTokenFile(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }

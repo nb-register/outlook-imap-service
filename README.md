@@ -13,9 +13,24 @@
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `OUTLOOK_EMAIL` | `test@outlook.com` | Outlook 主邮箱 |
-| `OUTLOOK_REFRESH_TOKEN` | 空 | Graph OAuth refresh token |
-| `OUTLOOK_AUTH_SCOPE` | `https://graph.microsoft.com/Mail.Read` | OAuth scope |
+| `OUTLOOK_REFRESH_TOKEN_FILE` | `tokens/outlook_refresh_token` | refresh token 持久化文件 |
 | `LISTEN_ADDR` | `:50053` | gRPC 监听地址 |
+
+## OAuth 初始化
+
+首次运行前执行 device flow，生成并持久化 refresh token：
+
+```bash
+go run ./tools/auth.go
+```
+
+默认写入 `tokens/outlook_refresh_token`，该目录已被 `.gitignore` 排除。需要自定义路径时：
+
+```bash
+go run ./tools/auth.go --token-file /path/to/outlook_refresh_token
+```
+
+服务启动后会从 token 文件读取 refresh token，并在后台定时刷新 Microsoft Graph access token，避免运行过程中 access token 过期。
 
 ## gRPC 接口
 

@@ -8,7 +8,6 @@ import (
 func newTestWatcher() *MailWatcher {
 	cfg := &Config{
 		PrimaryEmail: "primary@example.com",
-		OAuthScope:   "scope",
 	}
 	return NewMailWatcher(cfg, NewAccountManager(cfg))
 }

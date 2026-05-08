@@ -49,7 +49,7 @@ func NewMailWatcher(cfg *Config, accMgr *AccountManager) *MailWatcher {
 	return &MailWatcher{
 		cfg:          cfg,
 		accMgr:       accMgr,
-		oauthMgr:     NewOAuthManager(cfg.RefreshToken, cfg.OAuthScope),
+		oauthMgr:     NewOAuthManager(cfg.RefreshToken, cfg.RefreshTokenFile),
 		waiters:      make(map[string]*Waiter),
 		cachedOTPs:   make(map[string]*CachedOTP),
 		seenMessages: make(map[string]time.Time),
@@ -128,6 +128,10 @@ func (w *MailWatcher) cleanupLocked(now time.Time) {
 }
 
 func (w *MailWatcher) Start() {
+	if w.cfg.RefreshToken != "" {
+		w.oauthMgr.StartAutoRefresh()
+	}
+
 	go func() {
 		for {
 			w.poll()
